@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediTrack – Medicine Reminder App</title>
+<style>
+  body {
+    font-family: "Segoe UI", sans-serif;
+    background: linear-gradient(135deg, #a8edea, #fed6e3);
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+  }
+  header {
+    background: #0077b6;
+    color: white;
+    text-align: center;
+    padding: 15px;
+    font-size: 1.5rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+  }
+  main {
+    max-width: 700px;
+    margin: 30px auto;
+    background: #ffffffb9;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+  }
+  h2 { text-align: center; color: #333; }
+  label { display: block; margin: 10px 0 5px; }
+  input, select {
+    width: 100%;
+    padding: 8px;
+    border-radius: 5px;
+    border: 1px solid #ccc;
+    margin-bottom: 10px;
+  }
+  button {
+    background: #0077b6;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  button:hover { background: #005f87; }
+  .reminder {
+    background: #f1f9ff;
+    padding: 10px;
+    margin: 10px 0;
+    border-left: 4px solid #0077b6;
+    border-radius: 5px;
+  }
+  .hidden { display: none !important; }
+
+  /* Alarm modal */
+  #alarm-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+  }
+  #alarm-box {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+    width: 300px;
+  }
+</style>
+</head>
+<body>
+<header>MediTrack – Medicine Reminder App</header>
+<main>
+  <div id="auth-section">
+    <h2>Sign In / Sign Up</h2>
+    <input type="email" id="email" placeholder="Enter your email">
+    <button id="signin-btn">Sign In / Sign Up</button>
+  </div>
+
+  <div id="app-section" class="hidden">
+    <h2>Welcome to MediTrack</h2>
+    <button id="signout-btn">Sign Out</button>
+
+    <h3>Add Medicine Reminder</h3>
+    <label>Medicine Name:</label>
+    <input type="text" id="med-name">
+    <label>Dosage Info (optional):</label>
+    <input type="text" id="med-dose">
+    <label>Reminder Time:</label>
+    <input type="time" id="med-time">
+    <label>Select Days:</label>
+    <select id="med-days" multiple>
+      <option value="Sunday">Sunday</option>
+      <option value="Monday">Monday</option>
+      <option value="Tuesday">Tuesday</option>
+      <option value="Wednesday">Wednesday</option>
+      <option value="Thursday">Thursday</option>
+      <option value="Friday">Friday</option>
+      <option value="Saturday">Saturday</option>
+    </select>
+    <button id="add-reminder-btn">Add Reminder</button>
+
+    <h3>Your Reminders</h3>
+    <div id="reminders"></div>
+
+    <button id="start-monitor">Start Monitor</button>
+    <button id="stop-monitor">Stop Monitor</button>
+  </div>
+</main>
+
+<!-- Alarm Modal -->
+<div id="alarm-modal" class="hidden">
+  <div id="alarm-box">
+    <h3>⏰ Time for your medicine!</h3>
+    <p id="alarm-text"></p>
+    <button id="snooze-btn">Snooze</button>
+    <button id="stop-btn">Stop</button>
+  </div>
+</div>
+
+<script>
+let reminders = [];
+let currentUser = null;
+let alarmInterval = null;
+let snoozeTimeout = null;
+
+const authSection = document.getElementById('auth-section');
+const appSection = document.getElementById('app-section');
+const remindersDiv = document.getElementById('reminders');
+const alarmModal = document.getElementById('alarm-modal');
+const alarmText = document.getElementById('alarm-text');
+
+document.getElementById('signin-btn').onclick = () => {
+  const email = document.getElementById('email').value.trim();
+  if (!email) return alert("Please enter email");
+  currentUser = email;
+  localStorage.setItem("meditrack_user", email);
+  reminders = JSON.parse(localStorage.getItem("reminders_" + email) || "[]");
+  showApp();
+};
+
+document.getElementById('signout-btn').onclick = () => {
+  localStorage.removeItem("meditrack_user");
+  currentUser = null;
+  reminders = [];
+  authSection.classList.remove('hidden');
+  appSection.classList.add('hidden');
+  renderReminders();
+};
+
+function showApp() {
+  authSection.classList.add('hidden');
+  appSection.classList.remove('hidden');
+  renderReminders();
+}
+
+document.getElementById('add-reminder-btn').onclick = () => {
+  const name = document.getElementById('med-name').value;
+  const dose = document.getElementById('med-dose').value;
+  const time = document.getElementById('med-time').value;
+  const days = Array.from(document.getElementById('med-days').selectedOptions).map(o=>o.value);
+  if (!name || !time) return alert("Please enter medicine name and time");
+  reminders.push({name, dose, time, days});
+  localStorage.setItem("reminders_" + currentUser, JSON.stringify(reminders));
+  renderReminders();
+};
+
+function renderReminders() {
+  remindersDiv.innerHTML = reminders.map(r =>
+    `<div class='reminder'><b>${r.name}</b> ${r.dose?`(${r.dose})`:''}<br>Time: ${r.time}<br>Days: ${r.days.join(', ')}</div>`
+  ).join('') || "<p>No reminders yet.</p>";
+}
+
+function checkReminders() {
+  const now = new Date();
+  const currentTime = now.toTimeString().slice(0,5);
+  const currentDay = now.toLocaleString('en-us',{weekday:'long'});
+  for (let r of reminders) {
+    if (r.time === currentTime && (r.days.includes(currentDay) || r.days.length===0)) {
+      triggerAlarm(r);
+      break;
+    }
+  }
+}
+
+function triggerAlarm(reminder) {
+  alarmText.innerText = `${reminder.name} ${reminder.dose? '('+reminder.dose+')':''}`;
+  alarmModal.classList.remove('hidden');
+  const audio = new Audio("https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg");
+  audio.play();
+  if (Notification.permission === "granted") {
+    new Notification("Time for your medicine!", {body: reminder.name});
+  }
+}
+
+document.getElementById('snooze-btn').onclick = () => {
+  alarmModal.classList.add('hidden');
+  if (snoozeTimeout) clearTimeout(snoozeTimeout);
+  snoozeTimeout = setTimeout(()=>{ alarmModal.classList.remove('hidden'); }, 300000);
+};
+
+document.getElementById('stop-btn').onclick = () => {
+  alarmModal.classList.add('hidden');
+};
+
+document.getElementById('start-monitor').onclick = () => {
+  Notification.requestPermission();
+  if (!alarmInterval) alarmInterval = setInterval(checkReminders, 20000);
+  alert("Monitor started (keep tab open).");
+};
+
+document.getElementById('stop-monitor').onclick = () => {
+  clearInterval(alarmInterval);
+  alarmInterval = null;
+  alert("Monitor stopped.");
+};
+
+// Auto sign-in
+window.onload = () => {
+  const user = localStorage.getItem("meditrack_user");
+  if (user) { currentUser = user; reminders = JSON.parse(localStorage.getItem("reminders_" + user) || "[]"); showApp(); }
+};
+</script>
+</body>
+</html>
